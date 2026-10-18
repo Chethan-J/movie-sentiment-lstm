@@ -1,162 +1,167 @@
 import streamlit as st
 import tensorflow as tf
+import pickle
+import re
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.datasets import imdb
-
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
 
 st.set_page_config(
-    page_title="Movie Review Sentiment AI",
+    page_title="Movie Sentiment Analyzer",
     page_icon="🎬",
     layout="centered"
 )
 
-# ============================================================
-# LOAD TRAINED MODEL
-# ============================================================
+model = tf.keras.models.load_model("movie_sentiment_bilstm.keras")
 
-model = tf.keras.models.load_model("movie_sentiment_lstm.keras")
+with open("movie_sentiment_tokenizer.pkl", "rb") as file:
+    tokenizer = pickle.load(file)
 
-vocab_size = 10000
-max_length = 200
+def clean_text(text):
+    text = text.lower()
+    text = re.sub(r"<br />", " ", text)
+    text = re.sub(r"[^a-zA-Z\s]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
-# ============================================================
-# LOAD IMDB WORD INDEX
-# ============================================================
+def predict_sentiment(review):
+    cleaned_review = clean_text(review)
 
-word_index = imdb.get_word_index()
+    sequence = tokenizer.texts_to_sequences([cleaned_review])
 
-word_index = {
-    word: index + 3
-    for word, index in word_index.items()
-}
-
-word_index["<PAD>"] = 0
-word_index["<START>"] = 1
-word_index["<UNK>"] = 2
-
-# ============================================================
-# CONVERT REVIEW TEXT TO NUMBERS
-# ============================================================
-
-def encode_review(text):
-    words = text.lower().split()
-    encoded = []
-
-    for word in words:
-        if word in word_index:
-            index = word_index[word]
-
-            if index < vocab_size:
-                encoded.append(index)
-            else:
-                encoded.append(2)
-        else:
-            encoded.append(2)
-
-    return encoded
-
-# ============================================================
-# PREDICT SENTIMENT
-# ============================================================
-
-def predict_sentiment(text):
-    encoded = encode_review(text)
-
-    padded = pad_sequences(
-        [encoded],
-        maxlen=max_length,
+    padded_review = pad_sequences(
+        sequence,
+        maxlen=200,
         padding="post",
         truncating="post"
     )
 
     probability = model.predict(
-        padded,
+        padded_review,
         verbose=0
     )[0][0]
 
     if probability >= 0.5:
-        sentiment = "Positive 😊"
+        sentiment = "Positive"
         confidence = probability * 100
     else:
-        sentiment = "Negative 😞"
+        sentiment = "Negative"
         confidence = (1 - probability) * 100
 
     return sentiment, confidence
 
-# ============================================================
-# WEBSITE UI
-# ============================================================
 
-st.title("🎬 Movie Review Sentiment AI")
+st.title("🎬 Movie Sentiment Analyzer")
 
 st.write(
-    "Enter a movie name and your review. "
-    "The LSTM model will analyze the review and predict "
-    "whether the sentiment is positive or negative."
+    "Analyze movie reviews using a Bidirectional LSTM "
+    "sentiment classification model."
 )
 
-st.divider()
 
-# Movie name
+st.header("🔍 Single Review Analysis")
+
 movie_name = st.text_input(
-    "🎥 Movie Name",
-    placeholder="Example: Inception"
+    "Movie Name",
+    placeholder="Enter movie name"
 )
 
-# Movie review
 review = st.text_area(
-    "📝 Your Review",
-    placeholder="Example: The movie was amazing and the acting was excellent!",
+    "Movie Review",
+    placeholder="Write your movie review here...",
     height=150
 )
 
-# Analyze button
-if st.button("🔍 Analyze Review", use_container_width=True):
+if st.button("🔍 Analyze Sentiment"):
 
-    if movie_name.strip() == "":
-        st.warning("Please enter the movie name.")
-
-    elif review.strip() == "":
-        st.warning("Please enter your movie review.")
+    if review.strip() == "":
+        st.warning("Please enter a movie review.")
 
     else:
         sentiment, confidence = predict_sentiment(review)
 
-        st.divider()
+        st.subheader("Prediction")
 
-        st.subheader("🎬 Movie Details")
+        if movie_name.strip():
+            st.write(f"**Movie:** {movie_name}")
 
-        st.write(f"**Movie:** {movie_name}")
-
-        st.write(f"**Review:** {review}")
-
-        st.subheader("🤖 Sentiment Prediction")
-
-        if "Positive" in sentiment:
-            st.success(sentiment)
+        if sentiment == "Positive":
+            st.success(f"**Sentiment: {sentiment}**")
         else:
-            st.error(sentiment)
+            st.error(f"**Sentiment: {sentiment}**")
 
-        st.metric(
-            "Confidence",
-            f"{confidence:.2f}%"
-        )
+        st.write(f"**Confidence: {confidence:.2f}%**")
 
-        st.progress(int(confidence))
 
-st.divider()
-
-st.subheader("ℹ️ About the Model")
+st.header("📊 Multiple Review Analysis")
 
 st.write(
-    """
-    This application uses Natural Language Processing
-    and a Long Short-Term Memory (LSTM) neural network
-    to classify movie reviews as positive or negative.
-    """
+    "Enter multiple reviews, one review per line, "
+    "to calculate the overall sentiment."
 )
 
-st.info("Model: Embedding + LSTM + Dropout + Dense")
+reviews_text = st.text_area(
+    "Reviews",
+    placeholder="Enter one review per line...",
+    height=200
+)
+
+if st.button("📊 Analyze Overall Sentiment"):
+
+    reviews = [
+        review.strip()
+        for review in reviews_text.split("\n")
+        if review.strip()
+    ]
+
+    if len(reviews) == 0:
+        st.warning("Please enter at least one review.")
+
+    else:
+        positive_count = 0
+        negative_count = 0
+
+        st.subheader("Individual Predictions")
+
+        for i, review in enumerate(reviews, start=1):
+
+            sentiment, confidence = predict_sentiment(review)
+
+            if sentiment == "Positive":
+                positive_count += 1
+            else:
+                negative_count += 1
+
+            st.write(
+                f"**Review {i}:** {sentiment} "
+                f"({confidence:.2f}%)"
+            )
+
+        total_reviews = len(reviews)
+
+        positive_percentage = (
+            positive_count / total_reviews
+        ) * 100
+
+        negative_percentage = (
+            negative_count / total_reviews
+        ) * 100
+
+        st.subheader("Overall Result")
+
+        st.write(
+            f"**Positive Reviews:** {positive_count} "
+            f"({positive_percentage:.2f}%)"
+        )
+
+        st.write(
+            f"**Negative Reviews:** {negative_count} "
+            f"({negative_percentage:.2f}%)"
+        )
+
+        if positive_count > negative_count:
+            st.success("🎬 Overall Sentiment: POSITIVE")
+
+        elif negative_count > positive_count:
+            st.error("🎬 Overall Sentiment: NEGATIVE")
+
+        else:
+            st.warning("🎬 Overall Sentiment: MIXED")
