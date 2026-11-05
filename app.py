@@ -9,7 +9,6 @@ st.set_page_config(
     page_icon="🎬",
     layout="centered"
 )
-
 model = tf.keras.models.load_model("movie_sentiment_bilstm.keras")
 
 with open("movie_sentiment_tokenizer.pkl", "rb") as file:
